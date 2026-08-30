@@ -149,35 +149,80 @@ async function listFolder(folder) {
   return (data||[]).filter(x=>x.name && x.id);
 }
 async function loadDocuments() {
-  const status=document.getElementById('documentsStatus'), el=document.getElementById('documentsList');
-  if(!status || !el) return;
-  status.textContent='Chargement des documents…'; el.innerHTML='';
+ const status = document.getElementById('documentsStatus');
+  const el = document.getElementById('documentsList');
+
+  if (!status || !el) return;
+
+  status.textContent = 'Chargement des documents…';
+  el.innerHTML = '';
+
   try {
-    const allBlocks=[];
-    for(const folder of DOC_FOLDERS) {
-      const files=await listFolder(folder);
-      renderRemoteFolder(folder,files);
-      let html='<div class="card"><h3>'+folder.label+'</h3>';
-      if(!files.length) html+='<p class="muted">Aucun document dans ce dossier.</p>';
-      else html+='<div class="list">'+files.map(f=>`<div class="item"><div class="item-main"><h3>📄 ${esc(formatFileName(f.name))}</h3><span class="tag">${esc((f.name.split('.').pop()||'FICHIER').toUpperCase())}</span></div><div class="actions"><a class="btn secondary" href="${publicFileUrl(folder.key,f.name)}" target="_blank" rel="noopener">Ouvrir</a><a class="btn" href="${publicFileUrl(folder.key,f.name,true)}">Télécharger</a></div></div>`).join('')+'</div>';
-      html+='</div>'; allBlocks.push(html);
+    const { data: files, error } = await supabaseClient
+      .storage
+      .from('Documents')
+      .list('', {
+        limit: 100,
+        sortBy: { column: 'name', order: 'asc' }
+      });
+
+    if (error) throw error;
+
+    const documents = (files || []).filter(file => file.name && file.id);
+
+    if (!documents.length) {
+      el.innerHTML = `
+        <div class="card empty">
+          Aucun fichier trouvé dans le bucket Documents.
+        </div>
+      `;
+      status.textContent = '✓ Connexion à Supabase réussie.';
+      return;
     }
-    el.innerHTML=allBlocks.join('');
-    status.textContent='✓ Documents chargés depuis Supabase.';
-  } catch(err) {
-    console.error(err);
-    status.innerHTML='<b>Impossible de charger les documents.</b><br><span class="muted">Vérifiez la Policy SELECT du bucket Documents et la connexion Supabase.</span>';
-    ['remoteCoursesList','remoteExercisesList','remoteCasesList','remoteResearchList'].forEach(id=>{
-      const node=document.getElementById(id); if(node) node.innerHTML='<div class="card empty">Impossible de charger les fichiers Supabase.</div>';
-    });
+
+    el.innerHTML = documents.map(file => {
+      const publicUrl =
+        SUPABASE_URL +
+        '/storage/v1/object/public/Documents/' +
+        encodeURIComponent(file.name);
+
+      const downloadUrl = publicUrl + '?download=true';
+
+      return `
+        <div class="card item">
+          <div class="item-main">
+            <h3>📄 ${formatFileName(file.name)}</h3>
+            <span class="tag">
+              ${(file.name.split('.').pop() || 'FICHIER').toUpperCase()}
+            </span>
+          </div>
+
+          <div class="actions">
+            <a class="btn secondary"
+               href="${publicUrl}"
+               target="_blank"
+               rel="noopener">
+              Ouvrir
+            </a>
+
+            <a class="btn"
+               href="${downloadUrl}">
+              Télécharger
+            </a>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    status.textContent =
+      `✓ ${documents.length} document(s) chargé(s) depuis Supabase.`;
+
+  } catch (err) {
+    console.error('Erreur Supabase:', err);
+
+    status.innerHTML = `
+      <b>Impossible de charger les documents.</b><br>
+      <span class="muted">${err.message || 'Erreur inconnue'}</span>
+    `;
   }
 }
-const originalShowView=showView;
-showView=function(id) {
-  originalShowView(id);
-  if(['documents','courses','exercises','cases','search'].includes(id)) loadDocuments();
-};
-renderHome();renderDashboard();
-</script>
-</body>
-</html>
